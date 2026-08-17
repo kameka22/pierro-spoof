@@ -1,0 +1,33 @@
+[package]
+name = "ratio-spoof-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+# Bencode parsing
+serde_bencode = "0.2"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["gzip", "hickory-dns"] }
+hickory-resolver = "0.26"
+hickory-net = "0.26"
+
+# Crypto
+sha1 = "0.10"
+percent-encoding = "2.3"
+
+# Random generation
+rand = "0.8"
+regex = "1.10"
+rand_regex = "0.17"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
