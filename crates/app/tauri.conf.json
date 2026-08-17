@@ -1,6 +1,6 @@
 {
   "productName": "Pierro Spoof",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "identifier": "com.pierrospoof.desktop",
   "build": {
     "beforeDevCommand": "cd ../frontend && npm run dev",

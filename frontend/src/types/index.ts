@@ -13,6 +13,11 @@ export interface SpooferConfig {
   download_speed: number;
   upload_speed: number;
   port: number;
+  // New features
+  target_ratio?: number;
+  realistic_mode: boolean;
+  variance_percent: number;
+  peer_rotation_minutes?: number;
 }
 
 export type SpooferStatus =
@@ -36,6 +41,18 @@ export interface SpooferState {
   torrent_name: string;
   total_size: number;
   history: ProgressUpdate[];
+  // New feature states
+  current_ratio: number;
+  target_ratio?: number;
+  peer_rotation_count: number;
+  realistic_mode: boolean;
+  // Config display
+  download_speed: number;
+  upload_speed: number;
+  variance_percent: number;
+  peer_id: string;
+  client_profile: string;
+  peer_rotation_minutes?: number;
 }
 
 export interface ProgressUpdate {

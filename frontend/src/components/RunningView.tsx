@@ -15,6 +15,12 @@ function RunningView({ state, onStop }: RunningViewProps) {
     return `${bytes} B`;
   };
 
+  const formatSpeed = (bytesPerSec: number): string => {
+    if (bytesPerSec >= 1024 ** 2) return `${(bytesPerSec / 1024 ** 2).toFixed(1)} MB/s`;
+    if (bytesPerSec >= 1024) return `${(bytesPerSec / 1024).toFixed(0)} KB/s`;
+    return `${bytesPerSec} B/s`;
+  };
+
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -62,19 +68,68 @@ function RunningView({ state, onStop }: RunningViewProps) {
           </span>
         </div>
 
+        {/* Config summary */}
+        <div className="config-summary">
+          <div className="config-row">
+            <span className="config-label">Client</span>
+            <span className="config-value">{state.client_profile}</span>
+          </div>
+          <div className="config-row">
+            <span className="config-label">Peer ID</span>
+            <span className="config-value mono">{state.peer_id}</span>
+          </div>
+          <div className="config-row">
+            <span className="config-label">Vitesses</span>
+            <span className="config-value">
+              ↓ {formatSpeed(state.download_speed)} / ↑ {formatSpeed(state.upload_speed)}
+              {state.realistic_mode && <span className="variance-tag">±{state.variance_percent}%</span>}
+            </span>
+          </div>
+          {state.target_ratio && (
+            <div className="config-row">
+              <span className="config-label">Ratio cible</span>
+              <span className="config-value highlight">{state.target_ratio.toFixed(2)}</span>
+            </div>
+          )}
+          {state.peer_rotation_minutes && (
+            <div className="config-row">
+              <span className="config-label">Rotation peer</span>
+              <span className="config-value">
+                Toutes les {state.peer_rotation_minutes} min
+                {state.peer_rotation_count > 0 && <span className="rotation-count">({state.peer_rotation_count} effectuées)</span>}
+              </span>
+            </div>
+          )}
+        </div>
+
         <div className="tracker-info">
           <span className="tracker-label">Tracker</span>
           <span className="tracker-value">{state.current_tracker}</span>
         </div>
 
+        {/* Feature badges */}
+        <div className="feature-badges">
+          {state.realistic_mode && (
+            <span className="feature-badge active">Mode Réaliste</span>
+          )}
+          {state.peer_rotation_count > 0 && (
+            <span className="feature-badge active">Rotations: {state.peer_rotation_count}</span>
+          )}
+        </div>
+
         <div className="stats-grid">
           <div className="stat-item">
-            <div className="stat-label">Seeders</div>
-            <div className="stat-value">{state.seeders}</div>
+            <div className="stat-label">Ratio</div>
+            <div className="stat-value ratio-display">
+              <span className="ratio-value">{state.current_ratio.toFixed(2)}</span>
+              {state.target_ratio && (
+                <span className="ratio-target">/ {state.target_ratio.toFixed(1)}</span>
+              )}
+            </div>
           </div>
           <div className="stat-item">
-            <div className="stat-label">Leechers</div>
-            <div className="stat-value">{state.leechers}</div>
+            <div className="stat-label">Seeders / Leechers</div>
+            <div className="stat-value">{state.seeders} / {state.leechers}</div>
           </div>
         </div>
 

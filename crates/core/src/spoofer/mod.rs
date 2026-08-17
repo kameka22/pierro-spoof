@@ -8,6 +8,8 @@ use anyhow::{Result, Context};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use chrono::{DateTime, Utc};
+use rand::Rng;
+use std::time::Instant;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpooferConfig {
@@ -18,6 +20,19 @@ pub struct SpooferConfig {
     pub download_speed: u64,  // bytes per second
     pub upload_speed: u64,    // bytes per second
     pub port: u16,
+    // New features
+    #[serde(default)]
+    pub target_ratio: Option<f64>,           // Stop when this ratio is reached
+    #[serde(default)]
+    pub realistic_mode: bool,                // Enable speed variance
+    #[serde(default = "default_variance")]
+    pub variance_percent: f64,               // Variance percentage (e.g., 20.0 for ±20%)
+    #[serde(default)]
+    pub peer_rotation_minutes: Option<u64>,  // Rotate peer_id every N minutes
+}
+
+fn default_variance() -> f64 {
+    20.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +49,18 @@ pub struct SpooferState {
     pub torrent_name: String,
     pub total_size: u64,
     pub history: Vec<ProgressUpdate>,
+    // New feature states
+    pub current_ratio: f64,
+    pub target_ratio: Option<f64>,
+    pub peer_rotation_count: u32,
+    pub realistic_mode: bool,
+    // Config display
+    pub download_speed: u64,    // bytes per second
+    pub upload_speed: u64,      // bytes per second
+    pub variance_percent: f64,
+    pub peer_id: String,
+    pub client_profile: String,
+    pub peer_rotation_minutes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -67,6 +94,8 @@ pub struct RatioSpoofer {
     state: SpooferState,
     history: Vec<ProgressUpdate>,
     stop_signal: Option<mpsc::Receiver<()>>,
+    // Peer rotation tracking
+    last_peer_rotation: Instant,
 }
 
 impl RatioSpoofer {
@@ -94,6 +123,13 @@ impl RatioSpoofer {
         // Calculate initial left bytes
         let initial_left = torrent.total_size.saturating_sub(config.initial_downloaded);
 
+        // Calculate initial ratio
+        let initial_ratio = if config.initial_downloaded > 0 {
+            config.initial_uploaded as f64 / config.initial_downloaded as f64
+        } else {
+            0.0
+        };
+
         let state = SpooferState {
             status: SpooferStatus::Idle,
             current_downloaded: config.initial_downloaded,
@@ -107,6 +143,16 @@ impl RatioSpoofer {
             torrent_name: torrent.name.clone(),
             total_size: torrent.total_size,
             history: Vec::new(),
+            current_ratio: initial_ratio,
+            target_ratio: config.target_ratio,
+            peer_rotation_count: 0,
+            realistic_mode: config.realistic_mode,
+            download_speed: config.download_speed,
+            upload_speed: config.upload_speed,
+            variance_percent: config.variance_percent,
+            peer_id: peer_id.clone(),
+            client_profile: config.client_profile.clone(),
+            peer_rotation_minutes: config.peer_rotation_minutes,
         };
 
         Ok(Self {
@@ -120,6 +166,7 @@ impl RatioSpoofer {
             state,
             history: Vec::new(),
             stop_signal: None,
+            last_peer_rotation: Instant::now(),
         })
     }
 
@@ -188,6 +235,18 @@ impl RatioSpoofer {
             // Generate next progress values
             self.generate_next_progress();
 
+            // Check if target ratio reached
+            if self.check_target_ratio() {
+                eprintln!("[Spoofer] Target ratio {:.2} reached! Stopping...",
+                    self.config.target_ratio.unwrap_or(0.0));
+                return self.stop().await;
+            }
+
+            // Check if peer rotation is needed
+            if let Err(e) = self.rotate_peer_if_needed().await {
+                eprintln!("[Spoofer] Peer rotation error: {}", e);
+            }
+
             // Send announce
             match self.announce(None).await {
                 Ok(response) => {
@@ -248,10 +307,24 @@ impl RatioSpoofer {
     /// Generate next progress values based on configured speeds
     fn generate_next_progress(&mut self) {
         let interval_secs = self.state.announce_interval;
+        let mut rng = rand::thread_rng();
+
+        // Apply realistic mode variance if enabled
+        let (download_speed, upload_speed) = if self.config.realistic_mode {
+            let variance = self.config.variance_percent / 100.0;
+            let dl_factor = 1.0 + rng.gen_range(-variance..=variance);
+            let ul_factor = 1.0 + rng.gen_range(-variance..=variance);
+            (
+                (self.config.download_speed as f64 * dl_factor) as u64,
+                (self.config.upload_speed as f64 * ul_factor) as u64,
+            )
+        } else {
+            (self.config.download_speed, self.config.upload_speed)
+        };
 
         // Calculate bytes to add
-        let download_bytes = self.config.download_speed * interval_secs;
-        let upload_bytes = self.config.upload_speed * interval_secs;
+        let download_bytes = download_speed * interval_secs;
+        let upload_bytes = upload_speed * interval_secs;
 
         // Add random pieces for realism (1-10 pieces)
         let download_bytes = self.rounder.add_random_pieces(download_bytes, (1, 10));
@@ -270,6 +343,51 @@ impl RatioSpoofer {
         self.state.current_downloaded = new_downloaded;
         self.state.current_uploaded = new_uploaded;
         self.state.current_left = new_left;
+
+        // Update current ratio
+        if self.state.current_downloaded > 0 {
+            self.state.current_ratio = self.state.current_uploaded as f64 / self.state.current_downloaded as f64;
+        }
+    }
+
+    /// Check if target ratio has been reached
+    fn check_target_ratio(&self) -> bool {
+        if let Some(target) = self.config.target_ratio {
+            if self.state.current_downloaded > 0 {
+                return self.state.current_ratio >= target;
+            }
+        }
+        false
+    }
+
+    /// Rotate peer ID if interval has elapsed
+    async fn rotate_peer_if_needed(&mut self) -> Result<()> {
+        if let Some(minutes) = self.config.peer_rotation_minutes {
+            let interval_secs = minutes * 60;
+            if self.last_peer_rotation.elapsed().as_secs() >= interval_secs {
+                eprintln!("[Spoofer] Rotating peer ID...");
+
+                // Send "stopped" with old peer_id
+                self.announce(Some("stopped")).await.ok();
+
+                // Generate new peer_id and key
+                self.peer_id = PeerIdGenerator::generate(self.emulation.get_peer_id_regex())
+                    .context("Failed to generate new peer ID")?;
+                self.key = KeyGenerator::generate();
+
+                // Reset rotation timer
+                self.last_peer_rotation = Instant::now();
+                self.state.peer_rotation_count += 1;
+                self.state.peer_id = self.peer_id.clone();
+
+                eprintln!("[Spoofer] New peer ID: {} (rotation #{})",
+                    self.peer_id, self.state.peer_rotation_count);
+
+                // Send "started" with new peer_id
+                self.announce(Some("started")).await?;
+            }
+        }
+        Ok(())
     }
 
     fn add_to_history(&mut self) {

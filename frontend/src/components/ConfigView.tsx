@@ -20,6 +20,12 @@ function ConfigView({ onStart }: ConfigViewProps) {
   const [uploadSpeed, setUploadSpeed] = useState('1000');
   const [port, setPort] = useState('8999');
 
+  // New feature states
+  const [targetRatio, setTargetRatio] = useState('');
+  const [realisticMode, setRealisticMode] = useState(true);
+  const [variancePercent, setVariancePercent] = useState(20);
+  const [peerRotationMinutes, setPeerRotationMinutes] = useState('');
+
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -99,7 +105,12 @@ function ConfigView({ onStart }: ConfigViewProps) {
         initial_uploaded: uploaded,
         download_speed: downloadSpeedBytes,
         upload_speed: uploadSpeedBytes,
-        port: parseInt(port)
+        port: parseInt(port),
+        // New features
+        target_ratio: targetRatio ? parseFloat(targetRatio) : undefined,
+        realistic_mode: realisticMode,
+        variance_percent: variancePercent,
+        peer_rotation_minutes: peerRotationMinutes ? parseInt(peerRotationMinutes) : undefined,
       };
 
       onStart(config);
@@ -214,6 +225,59 @@ function ConfigView({ onStart }: ConfigViewProps) {
               onChange={(e) => setPort(e.target.value)}
               placeholder="8999"
             />
+          </div>
+
+          <div className="features-section">
+            <h4>Fonctionnalités avancées</h4>
+
+            <div className="input-row">
+              <div className="form-group">
+                <label>Ratio cible</label>
+                <input
+                  type="text"
+                  value={targetRatio}
+                  onChange={(e) => setTargetRatio(e.target.value)}
+                  placeholder="ex: 2.0 (vide = infini)"
+                />
+                <span className="hint">Arrêt auto quand atteint</span>
+              </div>
+
+              <div className="form-group">
+                <label>Rotation Peer (min)</label>
+                <input
+                  type="text"
+                  value={peerRotationMinutes}
+                  onChange={(e) => setPeerRotationMinutes(e.target.value)}
+                  placeholder="ex: 30 (vide = off)"
+                />
+                <span className="hint">Change l'identité</span>
+              </div>
+            </div>
+
+            <div className="form-group checkbox-group">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={realisticMode}
+                  onChange={(e) => setRealisticMode(e.target.checked)}
+                />
+                <span>Mode réaliste</span>
+              </label>
+              <span className="hint">Variation aléatoire de vitesse</span>
+            </div>
+
+            {realisticMode && (
+              <div className="form-group slider-group">
+                <label>Variance: ±{variancePercent}%</label>
+                <input
+                  type="range"
+                  min="5"
+                  max="50"
+                  value={variancePercent}
+                  onChange={(e) => setVariancePercent(parseInt(e.target.value))}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
